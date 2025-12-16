@@ -1,0 +1,13 @@
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langchain-groq
+langchain-google-genai
+pypdf
+tiktoken
+streamlit
+plotly
+pandas
+pydantic
+tabulate
