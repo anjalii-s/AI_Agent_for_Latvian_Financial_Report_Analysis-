@@ -1,5 +1,5 @@
 # Automated financial analysis tool for Latvian Annual Reports using AI-powered extraction and peer comparison analysis.
-AI Agent that can extract values from Latvian financial PDF reports, calculate key ratios, provide graphs and recommendations using API keys in Latvian and English language
+AI Agent that can extract values from Latvian financial PDF reports, calculate key ratios, provide graphs and recommendations using API keys in Latvian and English language.Also exports LLM insights as .txt and figures as .csv.
 
 
 
@@ -13,6 +13,7 @@ AI Agent that can extract values from Latvian financial PDF reports, calculate k
 - Calculate key financial ratios (Current Ratio, Net Margin, Debt/Equity)
 - Multi-company peer comparison
 - Visual dashboards and charts
+- Exports final LLM insights as a text file and numerical results/figures as a CSV file.
 
 🌍 **Multi-Language Support**
 - English & Latvian output
