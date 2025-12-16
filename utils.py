@@ -1,6 +1,7 @@
 """Utility functions for the Baltic Financial AI Agent."""
 
 import os
+import tempfile
 from typing import Optional
 from pydantic import BaseModel
 
@@ -30,42 +31,64 @@ def get_llm(provider: str, api_key: str):
         raise ValueError("Invalid Provider")
 
 
-def extract_data(file_path, llm, schema_class):
-    """Loads PDF, extracts text, and parses it into JSON."""
+def extract_data(file_obj, llm, schema_class):
+    """Loads PDF (Streamlit UploadedFile), extracts text, and parses it into JSON."""
     try:
-        loader = PyPDFLoader(file_path)
-        pages = loader.load()
+        # Get file name from Streamlit UploadedFile
+        file_name = getattr(file_obj, 'name', 'unknown.pdf')
         
-        full_text = "\n".join([p.page_content for p in pages[:8]])
-        full_text = "".join(c for c in full_text if ord(c) < 0x10000)
+        # Create temporary file for PDF processing
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(file_obj.read())
+            tmp_path = tmp_file.name
         
-        parser = PydanticOutputParser(pydantic_object=schema_class)
-        
-        prompt = PromptTemplate(
-            template="""
-            You are an expert Accountant for Baltic companies.
-            Extract the following financial figures from the Latvian Annual Report text below.
+        try:
+            # Load PDF
+            loader = PyPDFLoader(tmp_path)
+            pages = loader.load()
+            
+            # Extract text from first 8 pages
+            full_text = "\n".join([p.page_content for p in pages[:8]])
+            # Remove non-standard characters
+            full_text = "".join(c for c in full_text if ord(c) < 0x10000)
+            
+            # Parse with LLM
+            parser = PydanticOutputParser(pydantic_object=schema_class)
+            
+            prompt = PromptTemplate(
+                template="""
+                You are an expert Accountant for Baltic companies.
+                Extract the following financial figures from the Latvian Annual Report text below.
 
-            IMPORTANT RULES:
-            1. Latvian reports use spaces as thousand separators (e.g., "29 052 268"). You MUST remove spaces and return a pure number (29052268).
-            2. If a value is in brackets (), it is negative.
-            3. Look for "Rindas kods" to identify correct rows if names are ambiguous.
-            4. Extract data for the "Reporting Year" (Pārskata gads), not the previous year.
+                IMPORTANT RULES:
+                1. Latvian reports use spaces as thousand separators (e.g., "29 052 268"). You MUST remove spaces and return a pure number (29052268).
+                2. If a value is in brackets (), it is negative.
+                3. Look for "Rindas kods" to identify correct rows if names are ambiguous.
+                4. Extract data for the "Reporting Year" (Pārskata gads), not the previous year.
 
-            RAW TEXT:
-            {text}
+                RAW TEXT:
+                {text}
 
-            {format_instructions}
-            """,
-            input_variables=["text"],
-            partial_variables={"format_instructions": parser.get_format_instructions()}
-        )
+                {format_instructions}
+                """,
+                input_variables=["text"],
+                partial_variables={"format_instructions": parser.get_format_instructions()}
+            )
+            
+            chain = prompt | llm | parser
+            result = chain.invoke({"text": full_text})
+            
+            return result
         
-        chain = prompt | llm | parser
-        return chain.invoke({"text": full_text})
+        finally:
+            # Always clean up temporary file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
     
     except Exception as e:
-        return f"Error extracting {os.path.basename(file_path)}: {str(e)}"
+        file_name = getattr(file_obj, 'name', 'unknown.pdf')
+        error_msg = f"Error extracting {file_name}: {str(e)}"
+        return error_msg
 
 
 def calculate_ratios(data) -> dict:
@@ -77,19 +100,19 @@ def calculate_ratios(data) -> dict:
         "Net Profit (€)": data.parskata_gada_pelna,
     }
     
-    # Current Ratio
+    # Current Ratio (Liquidity)
     if data.apgrozamie_lidzekli and data.istermina_kreditori:
         ratios["Current Ratio"] = round(data.apgrozamie_lidzekli / data.istermina_kreditori, 2)
     else:
         ratios["Current Ratio"] = 0.0
     
-    # Net Margin
+    # Net Margin (Profitability)
     if data.parskata_gada_pelna and data.neto_apgrozijums:
         ratios["Net Margin (%)"] = round((data.parskata_gada_pelna / data.neto_apgrozijums) * 100, 2)
     else:
         ratios["Net Margin (%)"] = 0.0
     
-    # Debt/Equity
+    # Debt/Equity (Solvency)
     total_debt = (data.istermina_kreditori or 0) + (data.ilgtermina_kreditori or 0)
     if data.pasu_kapitals:
         ratios["Debt/Equity"] = round(total_debt / data.pasu_kapitals, 2)
